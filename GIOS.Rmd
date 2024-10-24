@@ -1,0 +1,807 @@
+---
+title: 'Projekt II: Łączenie danych meteorologicznych z danymi jakości powietrza z bazy GIOŚ'
+subtitle: 'Autorzy: Tymoteusz Maj, Wiktor Kondrak'
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  html_document:
+    theme: darkly
+    highlight: zenburn
+    toc: yes
+    toc_float: yes
+    collapsed: no
+    smooth_scroll: no
+    number_sections: no
+    toc_depth: 3
+    self_contained: yes
+    code_folding: null
+  pdf_document:
+    toc: yes
+    toc_depth: '3'
+---
+
+<script>
+   $(document).ready(function() {
+     $head = $('#header');
+      });
+</script>
+
+<style type="text/css"> 
+body { font-size: 14px; text-align: justify ; color: white} code.r{ font-size: 14px;} pre { font-size: 14px} 
+h1   { font-size: 24px;} h2 { font-size: 22px;} h3 { font-size: 20px;} 
+</style>
+
+```{r Wczytanie_bibliotek, include=FALSE}
+#Wczytanie wszystkich Bibliotek uzytych w projekcie
+
+library(readr)
+library(nycflights13)
+library(tidyverse)
+library(tibble)
+library(ggplot2)
+library(dplyr)
+library(Hmisc)
+library(extrafont)
+library(ggrepel)
+library(dichromat)
+library(PogromcyDanych)
+library(plotly)
+library(prettydoc)
+library(ggthemes)
+library(DT)
+library(openair)
+library(worldmet)
+library(pastecs)
+library(forecast)
+library(corrplot)
+library(utils)
+library(caret)
+library(parallel)
+library(doParallel)
+library(ggpmisc)
+library(lubridate)
+library(openair)
+library(openxlsx)
+library(leaflet)
+library(janitor)
+library(car)
+```
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = F, message = F, error = F, fig.align = "center", cache = T)
+```
+
+***
+# 1. Cel
+***
+  Celem przedmiotowego ćwiczenia jest zapoznanie się studentów z pracą z danymi pochodzącymi z bazy GIOś oraz z danymi meteorologicznymi. Aby prawidłowo wykonac zlecone nam zadanie musielismy zapoznac sie z formatem danych, poznać narzędzia które ułatwią nam pracę oraz ich przetwarzanie. Musieliśmy dokonać prognozy wybranego przez nasz zanieczyszczenia powietrza na dany rok, oraz dokonać analizy w celu określenia największej korealcji danych aby z łatwością móc odczytać panujące trendy w wybranej stacji obserwacyjnej. Ostatnim aspektem naszej pracy, było napisanie sprawozdania technicznego z wykonanengo ćwiczenia przy pomocy RMarkdown, w celu udokumentowania naszej pracy w języku R. 
+  
+***
+# 2. R (język programowania)
+***
+**R** - interpretowany jezyk programowania oraz srodowisko do obliczen statystycznych. Stosowany jest w analizie szeroko rozumianych danych środowiskowych i przestrzennych oraz ich wizualizacji.
+Podobny jest do języka i środowiska S stworzonego w Bell Laboratories przez Johna Chambersa i jego współpracowników. R jako implementacja języka S została stworzona przez Roberta Gentlemana i Rossa Ihakę na uniwersytecie w Auckland. Nadaje się on świetnie do interaktywnej pracy z danymi, ponieważ połączono w nim wybrane cechy języków funkcyjnych oraz obiektowych.
+
+*[Źródlo](https://pl.wikipedia.org/wiki/R_(język_programowania))*
+
+***
+# 3. R Markdown
+***
+**R Markdown** - jest formatem pliku stworzonym do sporzadzania dynamicznych dokumentow z wykorzystaniem R. Plik typu Markdown jest pisany w specyficzny dla siebie sposob, który zaklada bardzo latwa edycje tekstu oraz implementowanie w nim fragmentow kodu (chunki zawierajace kod z poleceniami w jezyku R). R Markdown jest bardzo wygodna metoda formatowania plikow HTML, PDF i dokumentow MS Word.
+
+*[Źródlo](https://rmarkdown.rstudio.com/articles_intro.html)*
+
+***
+# 4. Baza GIOŚ
+*** 
+
+Baza [GIOŚ](http://powietrze.gios.gov.pl/pjp/current) - (Główny Inspektorat  Ochrony Środowiska) - to zbiór publicznie dostępnych danych zebranych przez organ jakim jest GIOŚ. 
+
+Jednym z najistotniejszych zadań realizowanych przez Inspekcję Ochrony Środowiska jest prowadzenie badań i ocen stanu środowiska, w tym monitoringu jakości powietrza. Zadanie to jest wykonywane w ramach Państwowego Monitoringu Środowiska (PMŚ), którego program jest opracowywany przez Głównego Inspektora Ochrony Środowiska i zatwierdzany przez Ministra Środowiska. W oparciu o krajowy program PMŚ opracowywane są wojewódzkie programy PMŚ zatwierdzane przez Głównego Inspektora Ochrony Środowiska. 
+
+Monitoring jakości powietrza obejmuje zadania związane z badaniem i oceną stanu zanieczyszczenia powietrza, w tym pomiary i oceny jakości powietrza w strefach, monitoring tła miejskiego pod kątem WWA, pomiary stanu zanieczyszczenia powietrza pyłem PM2,5 dla potrzeb monitorowania procesu osiągania krajowego celu redukcji narażenia, pomiary stanu zanieczyszczenia powietrza metalami ciężkimi i WWA oraz rtęcią w stanie gazowym na stacjach monitoringu tła regionalnego, pomiary składu chemicznego pyłu PM2,5, monitoring prekursorów ozonu; programy badawcze dotyczące zjawisk globalnych i kontynentalnych wynikające z podpisanych przez Polskę konwencji ekologicznych.
+
+Ok. 90% pomiarów jakości powietrza wykonywanych w ramach PMŚ oraz roczne i pięcioletnie oceny jakości powietrza w strefach są wykonywane przez GIOŚ i regionalne wydziały. Na zlecenie Głównego Inspektoratu Ochrony Środowiska są realizowane krajowe programy monitoringu jakości powietrza, GIOŚ jednocześnie nadzoruje i koordynuje wykonywanie programu badań i ocen jakości powietrza określonego w krajowym i wojewódzkich programach Państwowego Monitoringu Środowiska.
+
+*[Źródlo](https://powietrze.gios.gov.pl/pjp/content/about_us)*
+
+***
+# 5. Las Losowy (Random Forest)
+*** 
+
+Las Losowy (ang. Random Forest) - jedna z metod ensamblingu uczenia maszynowego. Jest to rozszerzenie metody drzew decyzyjnych, która polega na budowaniu modelu w oparciu o zadawanie i dzielenie zbioru według warunków nakładanych na dane zmienne. I chociaż lasy losowe nadają się lepiej do prognozowania danych dyskretnych bądź nominalnych (metoda klasyfikacyjna), to również w naszym przypadku powinna przynieść satysfakcjonujące efekty.
+
+*[Źródlo] Materiał Zajęciowy*
+
+***
+# 6. Wybrana Stacja
+*** 
+
+Aby rozpocząc pracę z naszymi danymi, musieliśmy je pozyskać, w tym celu skorzystaliśy z środowiska dołączonego przez Pana Doktora, jako materiał zajęciowy *"projekt_2.RData"*. Aby zaimportować dane skorzystalićmy z poniższego polecenia:
+
+```{r import_danych, include=TRUE}
+
+load(file = "projekt_2.RData")
+
+```
+
+Naszą pracę z danymi postanowiliśmy rozpocząć od usnięcia polskich znaków w kolumnach z których w dalszczej części projektu będziemy korzystać:
+
+```{r usuniecie_polskich_znaków, include=TRUE}
+
+colnames(gios_inv)[c(7,13)] <- c("Data.zamkniecia", "Miejscowosc")
+colnames(gios_inv)[15:16] <- c("Szerokosc", "Dlugosc")
+
+```
+
+W celu wykonania naszego ćwiczenai postanowiliśmy skorzystać z stacji znajdującej się północnej cześci Częstochowy, w dzielnicy "Tysiąclecia" na ulicy. Krzysztofa Kamila Baczyńskiego. W tym celu skorzystaliśmy z stacji *SlCzestoBacz*.
+
+```{r Lokalizacja_Stacji, include=TRUE}
+
+gios_inv %>% filter(Kod.stacji == "SlCzestoBacz") -> czesto_lok
+
+czesto_lok_info <- paste(paste(
+  czesto_lok$Kod.stacji,
+  paste("Miejscowość:", czesto_lok$Miejscowosc),
+  paste("Data uruchomienia:", czesto_lok$Data.uruchomienia),
+  paste("Data zamknięcia:", czesto_lok$Data.zamkniecia),
+  paste("Typ stacji:", czesto_lok$Typ.stacji),
+  paste("Typ obszaru:", czesto_lok$Typ.obszaru),
+  paste("Współrzędne:", czesto_lok$Dlugosc,"E, ", czesto_lok$Szerokosc,"N"),
+  sep = "<br/>"
+))
+
+
+leaflet() %>%
+  addTiles() %>%
+  addMarkers(data=czesto_lok,
+             lng= ~ Dlugosc,
+             lat= ~ Szerokosc,
+             popup = czesto_lok_info)
+```
+Lokalizację geograficzną naszej stacji jakości powietrza sprawdziliśmy nieco wcześniej aby być pewnymi że w jej poblizu znajduje się stacja meteorologiczna z której będziemy mogli skorzystać dla prawidłowej analizy. Jak widzimy na poniższej mapie, odległość dzieląca nasze stacje nie przekracza 4km, dzięki czemu dane będą bardzo obiektywne. 
+
+```{r Stacja_Meteorologiczna, include=TRUE}
+
+noaa_isd <- getMeta(end.year="current", lon=19.130111, lat=50.836389, returnMap=T)
+
+noaa_isd
+
+```
+Po znalezieniu interesujacej nas stacji, postnaowiliśy zaimportować interesujące nas dane do zmiennej, tak aby w dalszej częsci naszej pracy nad projektem, z łatwością móc z nich korzystać, bez wracanie do tego momentu przygotowywania danych.
+
+```{r import_danych_Meteo, include=TRUE}
+
+czestochowa_met <- importNOAA(code="125500-99999", year=2000:2020)
+
+```
+
+Postanowiliśmy dokonać analizy ciagłości obserwacji, dla wybranej przez nas stacji, aby tego dokonać skorzystaliśmy z poniższego fragmentu kodu:
+
+```{r Ciąglość_Obserwacji, include=TRUE}
+
+# Dodanie informacji o roku do ramki danych
+
+czestochowa_met$years <- format(czestochowa_met$date, "%Y")
+
+# Policzenie ilości pomiarów dla danego roku dla stacji Okęcie
+
+czestochowa_met %>%
+  group_by(years) %>%
+  summarise(liczba_pomiarow = n() - sum(is.na(wd))) -> czestochowa_met_summary
+
+czestochowa_met_summary <- czestochowa_met_summary %>% 
+  as_tibble() %>% 
+  mutate(years = as.integer(years))
+
+czy_pomiary_czestochowa_met <- data.frame(ymin = -Inf,
+                                 ymax = Inf,
+                                 xmin = c(1999 , 2021),
+                                 xmax = c(1999.5 , 2021.5))
+
+# Utworzenie wykresu
+
+ggplot(czestochowa_met_summary, aes(x=years, y=liczba_pomiarow, color=liczba_pomiarow)) +
+  geom_point(size=3, show.legend = FALSE) + 
+  scale_y_continuous(name = 'Liczba rekordów pomiarowych',
+                     limits = c(0, 9000),
+                     expand = c(0, 0)) +
+  scale_x_continuous(name = 'Rok',
+                     limits = c(1998, 2022),
+                     expand = c(0, 0),
+                     breaks = seq(2000, 2020, by = 1)) +
+  geom_rect(data = czy_pomiary_czestochowa_met, 
+            aes(ymin = ymin, ymax = ymax,
+                xmin = xmin, xmax = xmax), fill = 'red',
+            alpha = 0.15, inherit.aes = FALSE) +
+  theme_minimal() +
+  theme(plot.margin = unit(c(.5,.5,.5,.5), "cm")) +
+  labs(title = 'Liczba pomiarów dla stacji pomiarowej CZESTOCHOWA (CZESTOCHOWA) w ISD NOAA', 
+       subtitle = paste0('Stan na ',format(Sys.time(),'%d %B, %Y'))) 
+
+```
+
+Stacja Częstochowa działa od 1940 roku, w badanym przez nas okresie czasu - to jest od 2000 - 2020 roku, stacja nie posiadała przerwy w dostarczaniu danych meteorologicznych. dodatkowo z powyższego wykresu możemy zauważyć, że najlepszą dokładnością danych charakteryzuje się okres od 2017-2019, gdyż to właśnie w tym okresie wykonywanych było najwięcej pomiarów, oraz zebrane dane miały charakter ciągły.
+
+***
+# 7. Analiza danych
+*** 
+
+***
+## 7.1. Selekcja danych 
+*** 
+
+Analizę naszych danych rozpoczeliśmy od wyselkecjonowania interesujących nas danych dotyczących zanieczyszczenia pyłami PM10 z wybranej przez nas stacji. Pozwoli nam to znacząco ograniczyć czas wykonywanych poleceń, oraz pozwoli skupić się na dokładniejszej analizie wybranego zagadnienia.
+
+```{r Seleckaj_PM10, include=TRUE}
+
+czestochowa_PM10 <- PM10_1h %>%
+  filter(kod=="SlCzestCzes_baczy" | kod=="SlCzestoBacz") %>% 
+  select(date, obs) 
+
+```
+
+Aby nasze dane prawidłowo z sobą współgrały musieliśy wykonać szereg poleceń mających na celu dodanie godziny z uwzględnieniem stefy czasowej, dokonać selekcji wybranych danych a następnie połaczyć je w jeden plik z danymi.  W tym celu skrozystaliśmy z poleceń :
+
+```{r laczenie_danych, include=TRUE}
+
+## Musimy dodać godzinę w danych meteo, aby uwzględnić różne strefy czasowe danych
+czestochowa_met$date <- czestochowa_met$date + 3600
+
+## selekcja wybranych zmiennych  
+
+czestochowa_met <- czestochowa_met[c(3, 7:14)]
+
+## Łączenie danych meteorologicznych z danymi jakości powietrza
+dane <- inner_join(czestochowa_met, czestochowa_PM10, by = "date")
+
+```
+
+Nasze dane dla lepszego zobrazowania postanowiliśmy przedstawić w formie tabeli danych aby każdy mógł odczytać interesujące go dane
+
+```{r Tabela_Danych, include=TRUE}
+
+datatable(dane)
+
+```
+
+W rozpatrywanym okresie występuje wysoka kompletnosć danych. W dalszej czesci naszej analizy posluzymy sie wynikami w formie graficznej, gdyz przy takiej ilosci danych, taka forma bedzie bardziej czytelna.
+
+
+***
+## 7.2. Braki danych i selekcja 
+*** 
+
+Wykorzystując to metodę niezbędne jest posiadanie kompletnych wierszy obserwacji, a także tylko tych zmiennych, które wniosą informację dodaną do naszego modelu. Aby upewnić się w którym roku posiadanmy najlepszą kompletność danych, skorzystaliśmy z poniższego polcenia, jednocześnie wybierając te które charakteryzowały się najlepszą kompletnością. 
+
+```{r Braki_danych, include=TRUE}
+
+# Sprawdzenie braków danych i poszczególnych kolumn
+summary(dane)
+
+# Selekcja tylko kompletnych wierszy
+dane_rf <- dane_rf[complete.cases(dane_rf),]
+
+```
+W celu przeprowadzenia dokładniejszej analizy postanowiliśmy przeprowadzić analizę dla więcej niż jednego modelu.  W tym celu postanowiliśmy utworzyć nowe zmienne naszych danych różniące się parametrami, aby otrzymać różny punkt odniesienia, na którym będziemy mogli bazować. Zdecydowaliśmy się na utworzenie 5 zmiennych gdyż taka ilość nie powodowała błędów wykonywanego kodu, oraz czas pracy wykonywanej przez system operacyjny był stosunkowo szybki. 
+
+```{r Mniejsze_R, include=TRUE}
+
+dane_rf %>% mutate(years = year(date)) -> dane_rf
+
+#dodanie kolumn
+dane_rf$unix_date <- as.numeric(as.POSIXct(dane_rf$date))
+
+dane_rf %>% mutate(years = year(date)) -> dane_rf
+
+dane1 <- dane_rf %>%
+  mutate(week = week(date))
+
+dane2 <- dane1 %>% 
+  mutate(hour = hour(date))
+
+dane3 <- dane2 %>% 
+  mutate(weekday = wday(date))
+
+dane4 <-dane3 %>% 
+  mutate(month = month(date))
+
+
+
+```
+
+
+Wykreślmy wykres, który poznaliśmy w czasie wykonywania Projektu numer jeden, który ma na celu zobrazowanie ilości rekordów w danym roku:
+
+```{r Wykres_ilosc_pomiarow, include=TRUE}
+
+# Policzenie ilości pomiarów w poszczególnych latach
+dane_rf$years <- format(dane_rf$date, "%Y")
+
+dane_rf %>%
+  group_by(years) %>%
+  summarise(liczba_pomiarow = n()) -> dane_rf_summary
+
+ggplot(dane_rf_summary, aes(x=years, y=liczba_pomiarow, color=liczba_pomiarow)) +
+  geom_point(size=3, show.legend = FALSE) +
+  theme_minimal() +
+  coord_flip()
+
+
+```
+
+Zgodnie z przykładowym projektem II, dołączonym jako materiał zajęciowy, dzielimy wszystkie zbiory na dwa podzbiory. Jeden z nich, tzw. “zbiór treningowy”, będzie obejmować dane, na których nauczymy model przewidywać stężenia PM10 na podstawie danych meteorologicznych. Nie wybierajmy zbyt wiele rekordów, bo zwiększy to wykładniczo czas obliczeniowy. Zdecydujmy się na 2 - 3lata najbardziej kompletnych danych. My do zbioru treningowego postanowiliśmy skorzystać z lat 2016 - 2018. Do zbioru, testowego, czyli takiego, na którym będziemy weryfikować nasz model, wybieramy rok 2018. Właśnie dla tego przedziału skorzystaliśmy dla każdej z naszych zmiennych.
+
+```{r Zbior_treningowy_testowy, include=TRUE}
+
+# Filtrujemy dane do zbioru treningowego i testowego
+
+dane_rf %>%
+  filter(years>2015 & years<2018) %>%
+  select(-date, -years) -> dane_rf_train
+
+dane_rf %>%
+  filter(years==2018) %>%
+  select(-years) -> dane_rf_test
+
+
+dane1 %>%
+  filter(years>2015 & years<2018) %>%
+  select(-date, -years) -> dane1_rf_train
+
+dane1 %>%
+  filter(years==2018) %>%
+  select(-years) -> dane1_rf_test
+
+
+dane2 %>%
+  filter(years>2015 & years<2018) %>%
+  select(-date, -years) -> dane2_rf_train
+
+dane2 %>%
+  filter(years==2018) %>%
+  select(-years) -> dane2_rf_test
+
+
+dane3 %>%
+  filter(years>2015 & years<2018) %>%
+  select(-date, -years) -> dane3_rf_train
+
+dane3 %>%
+  filter(years==2018) %>%
+  select(-years) -> dane3_rf_test
+
+
+dane4 %>%
+  filter(years>2015 & years<2018) %>%
+  select(-date, -years) -> dane4_rf_train
+
+dane4 %>%
+  filter(years==2018) %>%
+  select(-years) -> dane4_rf_test
+
+
+
+```
+
+Aby w przyszłosći nie pojawił się problem spójności danych, postanowiliśmy zapisać wyselekcjonowane dane jako nowa zmienna. W dalszej analizie bedziemy bazować na, kopii tak aby nie uszkodzić pliku oryginalnego.
+
+```{r zmienne_kopia, include=TRUE}
+
+
+# Zapisanie kopii obiektu, tak aby nie zmieniać nazw kolumn w oryginalnym zestawie danych
+dane_rfc <- dane_rf_train
+dane1_rfc <- dane1_rf_train
+dane2_rfc <- dane2_rf_train
+dane3_rfc <- dane3_rf_train
+dane4_rfc <- dane4_rf_train
+
+```
+
+
+***
+## 7.3. Korelacje między zmiennymi
+*** 
+
+Aby sprawdzić korelacje liniowe między naszymi zmiennymi posłużymy się korelacją Pearsona - tą samą z której krozystaliśmy w Projekcie I. 
+
+Macierz korelacji liniowej Pearsona (macierz współczynników określających poziom zależności liniowej między zmiennymi losowymi), pozwala wstępnie sprawdzić występowanie zależności między analizowanymi zmiennymi. Mówiąc prosto, współczynnik ten może przyjmować wartości od -1 do 1. Im jest mniejszy, tym silniejsza zależność ujemna między parametrami, a im jest bliższy 1, tym silniejsza zależność dodatnia. Dodatkowo możemy sprawdzić, czy otrzymane wartości są istotne statystycznie (przyjmiemy poziom istotności równy 0.05).
+
+Aby mówić w ogóle o wykorzystaniu modelu, musimy mieć solidne podstawy, aby sądzić, że związek między zmiennymi jest silny i jedną z nich (PM10 - zmienna objaśniana) da się przedstawić jako funkcja pozostałych zmiennych (zmienne objaśniające).
+
+```{r Macierz_Korelacji, include=TRUE}
+
+# Definiowanie indywidualnej palety kolorów w zależności od współczynnika korelacji (kodowanie hex)
+col <- colorRampPalette(c("#BB4444", "#EE9988", "#FFFFFF", "#77AADD", "#4477AA"))
+
+# Policzenie odpowiednich współczynników za pomocą funkcji 'corr'
+corr <- rcorr(as.matrix(dane_rfc))
+
+# Zdefiniowanie wektora ze współczynnikami korelacji
+corr_r <- corr$r
+
+# zdefiniowanie wektora z wartościami p-value
+corr_p <- corr$P
+
+# Wykreślenie macierzy korelacji
+corrplot(corr_r, method = "color", col = col(200),  
+         type = "upper", order = "hclust", addCoef.col = "black", 
+         diag = FALSE,
+         tl.col = "black", 
+         tl.srt = 45, 
+         p.mat = corr_p, 
+         sig.level = 0.05)
+```
+
+Jak widzimy, korelacje liniowe Pearsona między stężeniem pyłu PM10 a innymi zmiennymi są jedynie na umiarkowanym poziomie, ale wszystkie są statystycznie istotne. Ta wiedza jest dla nas wystarczająca, aby być pewnym że na naszych danych możemy zbudować model, jednocześnie nie musimy przejmować się, że jakaś korealacja okaże się nieistotna statystycznie - model prawdopodobnie sam ją odrzuci na etapie uczenia. 
+
+***
+## 7.4. Wykonanie predykcji
+*** 
+
+Do uruchomienia lasu losowego wykorzystano pakiet *caret*, który jest bardzo bogatym pakietem do modelowania statystycznego w R. Aby oszczędzić nieco czasu zgodnie z propozycją zawartą w konspekcie uruchomimy także obliczenie równoległe, które wykona się wykorzystując dostępne rdzenie procesora. Skorzystaliśmy z takiej metody gdyż utworzenie 5 modeli, było bardzo czasochłonne na naszym sprzęcie, a ta metoda pozwoliła odrobinę oszczędzić nam czasu, oraz ograniczyłą zużycie zasobów naszego sprzętu.  
+
+```{r Predykcja, include=TRUE}
+
+# Ustawiamy metodę tzw. "kroswalidacji", czyli samo-testowania się modelu w trakcie jego budowy.
+cross.walid <- trainControl(method = "cv",
+                            number = 5,
+                            allowParallel = T,
+                            returnResamp = 'all')
+
+# Zadajemy, aby w modelu były obecne wszystkie zmienne oprócz objaśnianej (PM10)
+tunegrid <- expand.grid(.mtry = c(1:10))
+tunegrid1 <- expand.grid(.mtry = c(1:11))
+tunegrid2 <- expand.grid(.mtry = c(1:12))
+tunegrid3 <- expand.grid(.mtry = c(1:13))
+tunegrid4 <- expand.grid(.mtry = c(1:14))
+tunegrid5 <- expand.grid(.mtry = c(1:15))
+# Uruchamiamy klaster obliczeniowy z wszystkich dostępnych rdzeni - 1 (zwyczajowo zostawia się jeden, aby system swobodnie działał)
+cluster <- makeCluster(detectCores() - 1)
+registerDoParallel(cluster)
+
+# Budujemy (trenujemy) model lasu losowego
+model_rf <- train(obs ~ ., 
+                  data = dane_rf_train, 
+                  method = "rf", 
+                  replace = T,
+                  ntree = 200,
+                  metric = 'RMSE',
+                  tuneGrid = tunegrid, 
+                  trControl = cross.walid)
+
+model1_rf <- train(obs ~ ., 
+                  data = dane1_rf_train, 
+                  method = "rf", 
+                  replace = T,
+                  ntree = 200,
+                  metric = 'RMSE',
+                  tuneGrid = tunegrid1, 
+                  trControl = cross.walid)
+
+model2_rf <- train(obs ~ ., 
+                   data = dane2_rf_train, 
+                   method = "rf", 
+                   replace = T,
+                   ntree = 200,
+                   metric = 'RMSE',
+                   tuneGrid = tunegrid2, 
+                   trControl = cross.walid)
+
+model3_rf <- train(obs ~ ., 
+                   data = dane3_rf_train, 
+                   method = "rf", 
+                   replace = T,
+                   ntree = 200,
+                   metric = 'RMSE',
+                   tuneGrid = tunegrid3, 
+                   trControl = cross.walid)
+
+model4_rf <- train(obs ~ ., 
+                   data = dane4_rf_train, 
+                   method = "rf", 
+                   replace = T,
+                   ntree = 200,
+                   metric = 'RMSE',
+                   tuneGrid = tunegrid4, 
+                   trControl = cross.walid)
+
+
+
+
+# Zatrzymujemy klaster
+stopCluster(cluster)
+registerDoSEQ() 
+
+
+```
+
+Z poniższych wykresów możemy z łatwością zobaczyć zmiany w testowaniu się modelu.  
+
+```{r Wykresy_modelu, include=TRUE}
+
+#Model 9 zmiennych
+plot(model_rf)
+
+#Model 10 zmiennych
+plot(model1_rf)
+
+#Model 11 zmiennych
+plot(model2_rf)
+
+#Model 12 zmiennych
+plot(model3_rf)
+
+#Model 13 zmiennych
+plot(model4_rf)
+
+```
+
+Jednak aby dokładnie odczytać wartość mtry, RMSE, Rsquared oraz MAE, skorzystamy z poniższych wyników .
+
+```{r RMSE, include=TRUE}
+
+#Model 9 zmiennych
+model_rf
+
+#Model 10 zmiennych
+model1_rf
+
+#Model 11 zmiennych
+model2_rf
+
+#Model 12 zmiennych
+model3_rf
+
+#Model 13 zmiennych
+model4_rf
+
+```
+
+
+***
+## 7.5. Testowanie modelu
+*** 
+
+Wykorzystując przed chwilą storzone modele możemy sprawdzić jak zachowują się one na danych, które nie były wykorzystane do jego uczenia. Pobierane zostaną dane meteorologiczne dla roku 2018 dla tej samej stacji w Częstochowie, a następnie wykorzystany zostanie utworzony model do oszacowania stężenia pyłu PM10 w tym roku.
+
+```{r Pobranie_danych}
+
+dane_rf_test$mod <- predict(model_rf, dane_rf_test)
+dane1_rf_test$mod <- predict(model1_rf, dane1_rf_test)
+dane2_rf_test$mod <- predict(model2_rf, dane2_rf_test)
+dane3_rf_test$mod <- predict(model3_rf, dane3_rf_test)
+dane4_rf_test$mod <- predict(model4_rf, dane4_rf_test)
+
+```
+
+Żeby sprawdzić, jak dobrze nasz model odwzorowuje rzeczywistość musimy mieć jakąś wartość odniesienia. Sporządźmy dwa wykresy obrazujące nam zależność wartości stężenia PM10 zaobserwowanego na stacji jakości powietrza od zamodelowanej jego wartości. Pierwszy z nich to wykres rozrzutu.
+
+
+```{r Wykresy_rozrzuty, include=TRUE}
+# Wykres rozrzutu
+
+# 9 zmiennych
+ggplot(data=dane_rf_test, aes(x=obs, y=mod))+
+  geom_point(alpha=0.6, color="purple") +
+  geom_smooth(method="lm", formula = y~x-1) +
+  geom_abline(intercept=0, col="grey", linetype="dashed", size=1) +
+  stat_poly_eq(aes(label = paste(..eq.label.., ..rr.label.., sep = "~~~")), 
+               label.x.npc = "right", label.y.npc = 0,
+               formula = y~x-1, parse = TRUE, size = 5) +
+  xlab("Stężenie PM10 [µg/m3] (Obserwacja)") +
+  ylab("Stężenie PM10 [µg/m3] (Prognoza)") +
+  ggtitle("Wykres rozrzutu prognozy od obserwacji dla stężeń PM10\nna stacji w Czestochowie w roku 2018") +
+  theme_minimal()
+
+# 10 zmiennych
+ggplot(data=dane1_rf_test, aes(x=obs, y=mod))+
+  geom_point(alpha=0.6, color="purple") +
+  geom_smooth(method="lm", formula = y~x-1) +
+  geom_abline(intercept=0, col="grey", linetype="dashed", size=1) +
+  stat_poly_eq(aes(label = paste(..eq.label.., ..rr.label.., sep = "~~~")), 
+               label.x.npc = "right", label.y.npc = 0,
+               formula = y~x-1, parse = TRUE, size = 5) +
+  xlab("Stężenie PM10 [µg/m3] (Obserwacja)") +
+  ylab("Stężenie PM10 [µg/m3] (Prognoza)") +
+  ggtitle("Wykres rozrzutu prognozy od obserwacji dla stężeń PM10\nna stacji w Czestochowie w roku 2018") +
+  theme_minimal()
+
+# 11 zmiennych
+ggplot(data=dane2_rf_test, aes(x=obs, y=mod))+
+  geom_point(alpha=0.6, color="purple") +
+  geom_smooth(method="lm", formula = y~x-1) +
+  geom_abline(intercept=0, col="grey", linetype="dashed", size=1) +
+  stat_poly_eq(aes(label = paste(..eq.label.., ..rr.label.., sep = "~~~")), 
+               label.x.npc = "right", label.y.npc = 0,
+               formula = y~x-1, parse = TRUE, size = 5) +
+  xlab("Stężenie PM10 [µg/m3] (Obserwacja)") +
+  ylab("Stężenie PM10 [µg/m3] (Prognoza)") +
+  ggtitle("Wykres rozrzutu prognozy od obserwacji dla stężeń PM10\nna stacji w Czestochowie w roku 2018") +
+  theme_minimal()
+
+# 12 zmiennych
+ggplot(data=dane3_rf_test, aes(x=obs, y=mod))+
+  geom_point(alpha=0.6, color="purple") +
+  geom_smooth(method="lm", formula = y~x-1) +
+  geom_abline(intercept=0, col="grey", linetype="dashed", size=1) +
+  stat_poly_eq(aes(label = paste(..eq.label.., ..rr.label.., sep = "~~~")), 
+               label.x.npc = "right", label.y.npc = 0,
+               formula = y~x-1, parse = TRUE, size = 5) +
+  xlab("Stężenie PM10 [µg/m3] (Obserwacja)") +
+  ylab("Stężenie PM10 [µg/m3] (Prognoza)") +
+  ggtitle("Wykres rozrzutu prognozy od obserwacji dla stężeń PM10\nna stacji w Czestochowie w roku 2018") +
+  theme_minimal()
+
+# 13 zmiennych
+ggplot(data=dane4_rf_test, aes(x=obs, y=mod))+
+  geom_point(alpha=0.6, color="purple") +
+  geom_smooth(method="lm", formula = y~x-1) +
+  geom_abline(intercept=0, col="grey", linetype="dashed", size=1) +
+  stat_poly_eq(aes(label = paste(..eq.label.., ..rr.label.., sep = "~~~")), 
+               label.x.npc = "right", label.y.npc = 0,
+               formula = y~x-1, parse = TRUE, size = 5) +
+  xlab("Stężenie PM10 [µg/m3] (Obserwacja)") +
+  ylab("Stężenie PM10 [µg/m3] (Prognoza)") +
+  ggtitle("Wykres rozrzutu prognozy od obserwacji dla stężeń PM10\nna stacji w Czestochowie w roku 2018") +
+  theme_minimal()
+
+
+```
+
+Wykres rozrzutu pokazuje jak mocno wyniki prognoz odchylone są od pomiarów stężeń PM10. Szara przerywana linia obrazuje model idealny (w sytuacji, gdy prognoza równa jest pomiarowi, czyli x=y), a niebieska – linię trendu uzyskaną z naszych danych, o równaniu wyświetlonym na wykresie.
+
+Według naszych danych, prognoza jest zaniżona w stosunku do pomiarów stężenia PM10 na stacji w Częstochowie, co jest szczególnie widoczne w przypadku najwyższych stężeń. Może to wynikać z faktu, że warunki meteorologiczne nie są jedynymi czynnikami wpływającymi na stężenie zanieczyszczenia na danym obszarze. Pominęliśmy całkowicie kwestię emisji, która, w przypadku sytuacji wyjątkowych i chwilowych, może drastycznie wpłynąć na mierzone stężenia zanieczyszczeń.
+
+Uznaliśmy że porównanie tych wykresów kiedy znajdują się jeden pod drugim, jest bardzo nie praktyczne.  W tym celu postanowiliśy przedstawić je bardziej czytelnie. W tym celu postanowiliśy opisać każdy z wykresóW zgodnie z jego modelem, a następnie zrobić jeden obraz zbiorczy, w tym celu skrozystalisy z poniższych poleceń:
+
+```{r Zebrany_rozrzut, include=TRUE}
+
+bind_rows(dane_rf_test %>% 
+             mutate(typ = 'Model A [+unix_date]'),
+           dane1_rf_test %>% 
+             mutate(typ = "Model B [+week]"),
+           dane2_rf_test %>% 
+             mutate(typ = "Model C [+hour]"),
+           dane3_rf_test %>% 
+             mutate(typ = "Model D [+weekday]"),
+           dane4_rf_test %>% 
+             mutate(typ = "Model E [+month]")) -> new_data
+        
+
+
+ggplot(data=new_data, aes(x=obs, y=mod))+
+  geom_point(alpha=0.6, color="purple") +
+  geom_smooth(method="lm", formula = y~x-1) +
+  geom_abline(intercept=0, col="grey", linetype="dashed", size=1) +
+  stat_poly_eq(aes(label = paste(..eq.label.., ..rr.label.., sep = "~~~")), 
+               label.x.npc = "right", label.y.npc = 0,
+               formula = y~x-1, parse = TRUE, size = 5) +
+  xlab("Stężenie PM10 [µg/m3] (Obserwacja)") +
+  ylab("Stężenie PM10 [µg/m3] (Prognoza)") +
+  ggtitle("Wykres rozrzutu prognozy od obserwacji dla stężeń PM10\nd stacji w Czestochowie w roku 2018") +
+  theme_minimal() +
+  facet_wrap(~typ)
+
+```
+
+Dzięki takiej formie prezentacji możemy, z łatwością porównać utworzone modele, odczytać interesujace nas parametry, oraz określić który model charakteryzuje się najlepszą dokładnoscią.
+
+Wykresy dodatkowo dostarcza informacji o równaniu regresji to znaczy o równaniu linii dopasowanej do danych przedstawionych na wykresie. Równanie dla najlepszego wyniku naszego doświadczenia przedstawia się następująco:  y = 0, 841x.
+
+Dla danych powyższych wykresu wyliczono też wartość współczynnika determinacji oznaczonego jako R2. Współczynnik ten w przypadku naszych wykresów jest równy = 0,81 (w kilku przypadkach). Zgodnie z przedstawioną poniżej tabelą można wyciagnąć wnioski że rozrzut naszej prognozy jest dobrze dopasowany do pomiaru idealnego. 
+
+
+```{r wspolczynnik_determinacji, include=FALSE}
+
+R2 <- read_delim("G:/Dokumenty/Studia/AGH/Geoinformacja/II semestr/Podstawy nauk o Ziemii II/Mateusz Rzeszutek, dr inż/PNZII- Maj Kondrak, Projekt 2/R2.txt", 
+    "\t", escape_double = FALSE, col_names = FALSE, 
+    trim_ws = TRUE)
+
+```
+
+```{r R2_, include=TRUE}
+
+R2
+
+```
+
+Ostantim aspektem naszej pracy jest utworzenie wykresu trendu prognozy dla obserwacji steżeń PM10. Postanowiliśmy utworzyć jeden wykres, który dzięki wysokiej dokładności, powinen być najbardziej dokłądną reprezentacją danych. Skorzystalśmy z zmiennej *dane4_rf_test*, gdyż to właśnie dla tych danych wyrkes rozrzuty charakteryzował się najlepszą dokładnością. 
+
+
+```{r Porownanie_danych_w_roku, include=TRUE}
+
+# Porównanie serii danych w danym fragmencie roku
+ggplot(data = dane4_rf_test) +
+  geom_path(aes(x = date, y = obs, color = "Obserwacje"), size = 1.5) + 
+  geom_path(aes(x = date, y = mod, color = "Model"), size = 1.5, alpha=0.6) +
+  scale_x_datetime(limits = ymd_h(c("2018-01-01 00", "2018-01-31 23"))) +
+  scale_y_continuous(limits=c(0,250)) +
+  scale_color_manual(values=c("Obserwacje"="grey","Model"="red"))+
+  xlab("Data") +
+  ylab("Stężenie PM10 [µg/m3]") +
+  ggtitle("Wykres trendu prognozy od obserwacji dla stężeń PM10 na stacji w Częstochowie w roku 2018") +
+  theme_minimal() +
+  theme(legend.position="top",legend.title=element_blank())
+
+```
+
+Wykres trendu prognoz (linia czerwona) od obserwacji stężeń PM10 (linia szara) pozwala na ogólną ocenę zgodności tych dwóch serii danych. Możemy zauważyć, że wniosek wyciągnięty na podstawie poprzedniego wykresu jest potwierdzony – najwyższe wartości stężeń są zaniżane w naszym modelu. Ogólny trend jest zachowany, chociaż również dla najniższych stężeń zdarzają się odchylenia.
+
+Oprócz grafiki wizualizacji oceny dokąłdności modelu zawsze warto przyjrzeć się paramtrom statystycznym oceny dokładności prognoz.
+
+
+```{r Tabela, include=TRUE}
+
+# 9 zmiennych
+modStats(mydata = dane_rf_test, 
+         mod = "mod", 
+         obs = "obs", 
+         type = "season") %>% 
+  knitr::kable(digits = 2)
+
+# 10 zmiennych
+modStats(mydata = dane1_rf_test, 
+         mod = "mod", 
+         obs = "obs", 
+         type = "season") %>% 
+  knitr::kable(digits = 2)
+
+# 11 zmiennych
+modStats(mydata = dane2_rf_test, 
+         mod = "mod", 
+         obs = "obs", 
+         type = "season") %>% 
+  knitr::kable(digits = 2)
+
+# 12 zmiennych
+modStats(mydata = dane3_rf_test, 
+         mod = "mod", 
+         obs = "obs", 
+         type = "season") %>% 
+  knitr::kable(digits = 2)
+
+# 13 zmiennych
+modStats(mydata = dane4_rf_test, 
+         mod = "mod", 
+         obs = "obs", 
+         type = "season") %>% 
+  knitr::kable(digits = 2)
+
+```
+
+
+***
+# Wnioski
+***
+
+Podsumowujac - wykonując to ćwiczenie poszerzyliśmy nasza wiedzę na temat przeprowadzania analizy danych metorologicznych, oraz o bazie danych GIOŚ. Poznaliśmy wiele możliwości skorzystania z tej wiedzy w celu przeprowadzenia jak najdokladniejszych analiz przy pomocy języka R.  W przyszłości wykorystując tą wiedzę oraz zdobyte umiejętności będziemy w stanie osiagnąć zamierzone przez nas cele w stosunkowo krótkim czasie. Uważamy, że najważnieszym aspektem naszej pracy było zdobycie wiedzy z zakresu przeprowadzania prognozy stężenia PM10 przy pomocy RStudio.
+
+
+***
+# Bibliografia
+***
+
+1) *A. Szulecka, R. Oleniacz, M. Rzeszutek (2017): Functionality of openair package in air pollution assessment and modeling – a case study of Krakow, Environmental Protection and Natural Resources, 28(2), 22-27. DOI: [10.1515/OSZN-2017-0009](https://www.sciendo.com/article/10.1515/oszn-2017-0009)* (dostep 03.05.2021)
+2) *J.N. Lott: [The Quality Control of the Integrated Surface Hourly database](https://www1.ncdc.noaa.gov/pub/data/inventories/ish-qc.pdf)* (dostep 03.05.2021)
+3) *D.C. Carslaw, K. Ropkins (2012): openair — An R package for air quality data analysis, Environmental Modelling & Software, 27–28(0), 52–61. DOI: [10.1016/j.envsoft.2011.09.008](https://www.sciencedirect.com/science/article/abs/pii/S1364815211002064?via%3Dihub)* (dostep 03.05.2021)
+4) *D.B. Stephenson (2005): Data analysis methods in weather and climate research, [on-line](http://empslocal.ex.ac.uk/people/staff/dbs202/cag/courses/MT37C/course-d.pdf) course* (dostep 04.05.2021)
+5) *https://bookdown.org/yihui/rmarkdown/html-document.html*  (dostep 05.05.2021)
+6) *https://www.datadreaming.org/post/r-markdown-theme-gallery/* (dostep 05.05.2021)
+7) *https://rpubs.com/danapower/577147* (dostep 05.05.2021)
+8) *https://pl.wikipedia.org/wiki/R_(język_programowania)* (dostep 10.05.2021)
+9) *https://bookdown.org/yihui/rmarkdown/* (dostep 10.05.2021)
+10) *https://dane.gov.pl/pl* (dostep 15.05.2021)
+11) *http://pbiecek.github.io/Przewodnik/Programowanie/jak_tworzyc_raporty.html* (dostep 15.05.2021)
+12) *https://tibble.tidyverse.org* (dostep 15.05.2021)
+13) *https://riptutorial.com/pl/r/example/2871/tworzenie-tabeli-danych* (dostep 15.05.2021)
+14) *https://cran.r-project.org/doc/contrib/wprowadzenie_do_R.pdf* (dostep 15.05.2021)
+15) *https://plotly.com/r/* (dostep 15.05.2021)
+16) *https://cran.r-project.org/doc/contrib/Biecek-R-basics.pdf* (dostep 15.05.2021)
+17) *https://www.ncdc.noaa.gov/isd* (dostep 15.05.2021)
+18) *http://japoland.pl/blog/tokio-2/* (dostep 15.05.2021)
+19) *https://powietrze.gios.gov.pl/pjp/content/about_us* (dostep 16.05.2021)
+20) *https://github.com/mlr-org/mlr/issues/1515* (dostęp 17.05.2021)
+21) *https://community.rstudio.com/t/error-when-knitting-to-html-document-the-name-of-the-input-file-cannot-contain-the-special-shell-characters/45066/3* (dostep 17.05.2021)
+  
+
